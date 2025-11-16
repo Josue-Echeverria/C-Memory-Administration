@@ -2,176 +2,225 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct hole {
-    size_t start;          // starting address of the free block
-    size_t size;           // length of the block
-    struct hole *next;     // next hole in sorted-by-address order
-} Hole;
+#define MEMORY_SIZE 1024000
+#define MAX_FRAMES 1000 
 
+// Estructura para llevar control de bloques asignados
+typedef struct {
+    int start;
+    int size;   
+    char name;   
+    int is_free;   
+} Frame;
 
-void alloc_memory(char *mem, int index, int size, char *name) {
-    // Implementation of memory allocation
-    for (int i = 0; i < size; i++) {
-        mem[index + i] = *name; // Mark memory as used
+// Variables globales
+char *memory;
+Frame frames[MAX_FRAMES]; 
+int frame_count = 0;    
+int allocation_strategy = 0; // 0: First Fit, 1: Best Fit, 2: Worst Fit
+
+// Initialize memory
+void init_memory() {
+    memory = (char*)malloc(MEMORY_SIZE);
+    if (memory == NULL) {
+        printf("Error: Could not allocate memory\n");
+        exit(1);
     }
+    // Initialize all memory with '.'
+    memset(memory, '.', MEMORY_SIZE);
 }
 
-int get_table_index(int table[1024][2], int page_number) {
-    for (int i = 0; i < 1024; i++) {
-        if (table[i][0] == page_number) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int get_free_table_index(int table[1024][2]) {
-    for (int i = 0; i < 1024; i++) {
-        if (table[i][0] == -1) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int get_best_fit_index(Hole *free_list, int size, char *mem, char name) {
-    Hole *prev = NULL;
-    Hole *cur  = free_list;
-
-    while (cur) {
-        if (cur->size >= size) {
-            alloc_memory(mem, cur->start, size, &name); // Mark memory as used
-            // If the hole is larger than needed, split it
-            if (cur->size > size) {
-                cur->start += size;
-                cur->size  -= size;
-            } else { // Exact fit, remove hole from free list
-                if (prev) {
-                    prev->next = cur->next;
-                } else {
-                    free_list = cur->next;
-                }
-                free(cur);
+// Find free space using First Fit
+int find_free_space_first_fit(int size) {
+    for (int i = 0; i <= MEMORY_SIZE - size; i++) {
+        int found = 1;
+        for (int j = 0; j < size; j++) {
+            if (memory[i + j] != '.') {
+                found = 0;
+                break;
             }
-            return cur->start; // Return starting index of allocated memory
         }
-        prev = cur;
-        cur = cur->next;
+        if (found) return i;
     }
+    return -1; // No space available
 }
 
-int get_worst_fit_index(int table[1024][3], int size) {
+int find_free_space_best_fit(int size) {
+    int best_index = -1;
+    int best_size = MEMORY_SIZE + 1;
+
+    for (int i = 0; i <= MEMORY_SIZE - size; i++) {
+
+        int block_size = 0;
+        while (i + block_size < MEMORY_SIZE && memory[i + block_size] == '.') {
+            block_size++;
+        }
+        if (size < block_size < best_size) {
+            best_size = block_size;
+            best_index = i;
+        }
+        i += block_size - 1; // Skip checked block
+    }
+    return best_index;
+}
+
+int find_free_space_worst_fit(int size) {
     int worst_index = -1;
     int worst_size = -1;
 
-    for (int i = 0; i < 1024; i++) {
-        if (table[i][0] != -1 && table[i][2] >= size) {
-            if (table[i][2] > worst_size) {
-                worst_size = table[i][2];
-                worst_index = i;
-            }
+    for (int i = 0; i <= MEMORY_SIZE - size; i++) {
+        int block_size = 0;
+        while (i + block_size < MEMORY_SIZE && memory[i + block_size] == '.') {
+            block_size++;
         }
+        if (size < block_size > worst_size) {
+            worst_size = block_size;
+            worst_index = i;
+        }
+        i += block_size - 1; // Skip checked block
     }
     return worst_index;
 }
 
-int get_first_fit_index(int table[1024][3], int size) {
-    for (int i = 0; i < 1024; i++) {
-        if (table[i][0] != -1 && table[i][2] >= size) {
-            return i;
+// Simulate ALLOC
+void my_malloc(char name, int size) {
+    
+    int start;
+    if (allocation_strategy == 0) {
+        start = find_free_space_first_fit(size);
+    } else if (allocation_strategy == 1) {
+        start = find_free_space_best_fit(size);
+    } else {
+        start = find_free_space_worst_fit(size);
+    }
+    
+    if (start == -1) {
+        printf("ALLOC %c %d: ERROR - Not enough space available\n", name, size);
+        return;
+    }
+    
+    // Mark memory as occupied
+    for (int i = 0; i < size; i++) {
+        memory[start + i] = name;
+    }
+    
+    // Add to control table
+    frames[frame_count].start = start;
+    frames[frame_count].size = size;
+    frames[frame_count].name = name;
+    frames[frame_count].is_free = 0;
+    frame_count++;
+    
+    printf("ALLOC %c %d: Allocated at position %d\n", name, size, start);
+}
+
+// Simulate free
+void my_free(char name) {
+    for (int i = 0; i < frame_count; i++) {
+        if (frames[i].name == name && frames[i].is_free == 0) {
+            // Mark memory as free
+            for (int j = 0; j < frames[i].size; j++) {
+                memory[frames[i].start + j] = '.';
+            }
+            frames[i].is_free = 1;
+            printf("FREE %c: Released frame of %d bytes at position %d\n", 
+                   name, frames[i].size, frames[i].start);
+            return;
         }
     }
-    return -1;
+    printf("FREE %c: ERROR - frame not found or already freed\n", name);
 }
 
-int complete_instruction(char *ins[], Hole *free_list, int table[1024][3], char *mem) {
-    if (strcmp(ins[0], "ALLOC") == 0) {
-        printf("%s %s %s\n", ins[0], ins[1], ins[2]);
-        int free_index = get_free_table_index(table);
-
-        int get_best_index = get_best_fit_index(free_list, atoi(ins[2]), mem);
-
-
-        table[free_index][0] = atoi(ins[1]); 
-        table[free_index][1] = 
-        table[free_index][2] = atoi(ins[2]); 
-        return 1;
+// Simulate realloc
+void my_realloc(char name, int new_size) {
+    // Find the frame
+    for (int i = 0; i < frame_count; i++) {
+        if (frames[i].name == name && frames[i].is_free == 0) {
+            int old_size = frames[i].size;
+            int old_start = frames[i].start;
+            
+            // Free current frame
+            my_free(name);
+            
+            // Try to allocate new size
+            my_malloc(name, new_size);
+            
+            printf("REALLOC %c %d: Changed from %d bytes to %d bytes\n", 
+                   name, new_size, old_size, new_size);
+            return;
+        }
     }
-    if (strcmp(ins[0], "FREE") == 0) {
-        printf("%s %s\n", ins[0], ins[1]);
-        return 2;
-    };
-    if (strcmp(ins[0], "PRINT") == 0) {
-        printf("%s\n", ins[0]);
-        return 3;
-    }
-    if (strcmp(ins[0], "REALLOC") == 0) {
-        printf("%s %s %s\n", ins[0], ins[1], ins[2]);
-        return 4;
-    }
-    return -1;
+    printf("REALLOC %c %d: ERROR - frame not found\n", name, new_size);
 }
 
+// Show memory status
+void print_memory() {
+    printf("\nCurrently allocated frames:\n");
+    printf("Name   | Start  | Size   | End\n");
+    printf("-------|--------|--------|--------\n");
+    
+    for (int i = 0; i < frame_count; i++) {
+        if (frames[i].is_free == 0) {
+            printf("   %c   | %6d | %6d | %6d\n", 
+                   frames[i].name, frames[i].start, frames[i].size, 
+                   frames[i].start + frames[i].size - 1);
+        }
+    }
+    printf("\n");
+}
+
+// Process command file
+void process_file(char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("Error: Could not open file '%s'\n", filename);
+        return;
+    }
+    
+    char line[256];
+    char command[20];
+    char name;
+    int size;
+    
+    while (fgets(line, sizeof(line), file) != NULL) {
+        if (sscanf(line, "%s %c %d", command, &name, &size) == 3) {
+            if (strcmp(command, "ALLOC") == 0) {
+                my_malloc(name, size);
+            } else if (strcmp(command, "REALLOC") == 0) {
+                my_realloc(name, size);
+            }
+        } else if (sscanf(line, "%s %c", command, &name) == 2) {
+            if (strcmp(command, "FREE") == 0) {
+                my_free(name);
+            }
+        } else if (sscanf(line, "%s", command) == 1) {
+            if (strcmp(command, "PRINT") == 0) {
+                print_memory();
+            } 
+        }
+    }
+    
+    fclose(file);
+}
 
 int main(int argc, char *argv[]) {
-    char *mem = malloc(1024000);
-    Hole *free_list = NULL;
-    Hole *h = malloc(sizeof(Hole));
-    h->start = 0;
-    h->size = 1024000;
-    h->next = NULL;
-    free_list = h;
-
-    int table[1024][3];
-    for (int i = 0; i < 1024; i++) {
-        table[i][0] = -1;
-        table[i][1] = -1;
-        table[i][2] = -1;
-    }
-
-    if (argc != 2) {
-        fprintf(stderr, "Uso: %s <archivo_entrada>\n", argv[0]);
+    if (argc < 2) {
+        printf("Usage: %s <command_file>\n", argv[0]);
         return 1;
     }
-    FILE *file = fopen(argv[1], "r");
-    if (file == NULL) {
-        fprintf(stderr, "Error: No se pudo abrir el archivo '%s'\n", argv[1]);
-        return 1;
-    }
-
-
-    char line[256];
-    int line_number = 1;
-    char word[256];
-    int word_index = 0;
-    char *ins[3];
-    int ins_index = 0;
-
-    while (fgets(line, sizeof(line), file) != NULL) {
-
-        for (int i = 0; i < strlen(line); i++) {
-            if (line[i] == '\n') {
-                word[word_index] = '\0';
-                ins[ins_index++] = strdup(word);
-                complete_instruction(ins, table, mem);
-                word_index = 0;
-                ins_index = 0;
-                break;
-            }
-            if (line[i] == ' ') {
-                word[word_index] = '\0';
-                word_index = 0;
-                ins[ins_index++] = strdup(word);
-                continue;
-            } 
-            word[word_index++] = line[i];
+    
+    allocation_strategy = 0; // Default to First Fit
+    if (argc == 3) {
+        if (strcmp(argv[2], "best") == 0) {
+            allocation_strategy = 1;
+        } else if (strcmp(argv[2], "worst") == 0) {
+            allocation_strategy = 2;
         }
-        word_index = 0;
-        line_number++;
     }
-
-    // Cerrar el archivo
-    fclose(file);
+    init_memory();
+    process_file(argv[1]);
+        
+    free(memory);
     
     return 0;
 }

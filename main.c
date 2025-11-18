@@ -49,17 +49,27 @@ int find_free_space_best_fit(int size) {
     int best_index = -1;
     int best_size = MEMORY_SIZE + 1;
 
-    for (int i = 0; i <= MEMORY_SIZE - size; i++) {
-
+    for (int i = 0; i < MEMORY_SIZE; i++) {
+        // Skip occupied blocks
+        if (memory[i] != '.') {
+            continue;
+        }
+        
+        // Calculate size of free block
         int block_size = 0;
-        while (i + block_size < MEMORY_SIZE && memory[i + block_size] == '.') {
+        int block_start = i;
+        while (i < MEMORY_SIZE && memory[i] == '.') {
             block_size++;
+            i++;
         }
-        if (size < block_size < best_size) {
+        
+        // Check if block is large enough and smaller than current best
+        if (block_size >= size && block_size < best_size) {
             best_size = block_size;
-            best_index = i;
+            best_index = block_start;
         }
-        i += block_size - 1; // Skip checked block
+        
+        i--; // Adjust for loop increment
     }
     return best_index;
 }
